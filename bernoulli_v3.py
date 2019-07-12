@@ -22,10 +22,26 @@ print(theta_p)
 # (This is denoted A in the papers)
 rotation = cirq.Ry(theta_p)
 print(rotation)
+
+
+## double check all the linear algebra (used for video)
+
 # it is just a real matrix with determinant 1 (unitary)
 cirq.unitary(rotation)
 np.linalg.det(cirq.unitary(rotation))
 
+
+# Eigen decomposition
+# eigenvalues should be
+(np.exp(-1j* theta_p/2), np.exp(+1j* theta_p/2) )
+# Check:
+eigen_rotation = np.linalg.eig(cirq.unitary(rotation))
+
+# check abs is 1
+abs(eigen_rotation[0][0])
+
+# finally.. we should get back to theta_p
+np.angle(eigen_rotation[0][0])*2, theta_p
 
 # grab a qubit
 q0 = cirq.GridQubit(0, 0)
@@ -91,14 +107,14 @@ class QftInverse(cirq.Gate):
 				
 
 
-def phase_estimate(what, qnum, repetitions):
+def phase_estimate(unknown_operator, qnum, repetitions):
 	# setup QIFT output and ancilliary qubit
 	qubits = [None] * qnum
 	for i in range(len(qubits)):
 		qubits[i] = cirq.GridQubit(0, i)
 	
 	ancilla = cirq.GridQubit(0, len(qubits))		
-	print('Got qubits', ancilla, qubits)
+	#print('Got qubits', ancilla, qubits)
 
 	# reference fo controlled gate
 	# https://cirq.readthedocs.io/en/stable/generated/cirq.ControlledGate.html
@@ -109,7 +125,7 @@ def phase_estimate(what, qnum, repetitions):
 	# i.e. we could just replace the above with cirq.Ry(theta_p * (2**i) ) 
 	circuit = cirq.Circuit.from_ops(
         cirq.H.on_each(*qubits), # H gate on all qubits
-        [cirq.ControlledGate( what ** (2**i) ).on( qubits[qnum-i-1], ancilla) for i in range(qnum)],
+        [cirq.ControlledGate( unknown_operator ** (2**i) ).on( qubits[qnum-i-1], ancilla) for i in range(qnum)],
         QftInverse(qnum)(*qubits),
         cirq.measure(*qubits, key='phase') # don't bother measuring ancilliary bit
 	)
@@ -119,50 +135,21 @@ def phase_estimate(what, qnum, repetitions):
 	return result 
 
 
-
+def to_dec(bin):
+	dec_estimate = sum([float(s)*0.5**(order+1) for order, s in enumerate(np.flip(bin,0))])
+	if dec_estimate > 0.5:
+		dec_estimate = 1 - dec_estimate
+	return dec_estimate
 
 def run_phase_estimate(qnum, what, repetitions=100):
-    """Execute the phase estimator cirquit with multiple settings and
-    show results.
-    """
-    print('Estimation with {}qubits.'.format(qnum))
-    print('Estimation (Raw binary)')
-    fold_func = lambda ms: ''.join(np.flip(ms, 0).astype(int).astype(str))
     result = phase_estimate( what, qnum, repetitions)
-    hist = result.histogram(key='phase', fold_func=fold_func)
-    estimate_bin = hist.most_common(1)[0][0]
-    estimate = (sum([float(s)*0.5**(order+1) for order, s in enumerate(estimate_bin)]))
-    if estimate > 0.5:
-        estimate = 1- estimate
-
-    print('{:0.4f} ({})'.format(estimate, estimate_bin))
-    
-    
-    return estimate
-
-
-pe = run_phase_estimate(8, rotation, 1)
-qae = pe * np.pi * 8 / 2
-np.sin(qae/2)**2
-
-
-def run_phase_estimate_v2(qnum, what, repetitions=100):
-    fold_func = lambda ms: ''.join(np.flip(ms, 0).astype(int).astype(str))
-    result = phase_estimate( what, qnum, repetitions)
-    
-    def to_dec(bin):
-        dec_estimate = sum([float(s)*0.5**(order+1) for order, s in enumerate(np.flip(bin,0))])
-        if dec_estimate > 0.5:
-            dec_estimate = 1 - dec_estimate
-        return dec_estimate
-    
     estimates = [to_dec(estimate_bin) for estimate_bin in result.measurements['phase']]
 
-    theta_estimates = np.array(estimates) * np.pi * 8 / 2
+    theta_estimates = np.array(estimates) * 4 * np.pi
     p_estimates = np.sin(theta_estimates/2)**2
 
     plt.hist(p_estimates,bins=50)
     plt.show()
 
-run_phase_estimate_v2(8, rotation, 100)
+run_phase_estimate(9, rotation, 20)
 
